@@ -7,7 +7,7 @@ from datetime import datetime
 # =========================================================
 # 1. إعدادات الصفحة العامة
 # =========================================================
-logo_path = "logo.png"
+logo_path = "logo.jfif"
 
 st.set_page_config(
     page_title="مشروع العمر للمصلحين",
@@ -109,12 +109,11 @@ with menu_col1:
         st.image(logo_path, width=80)
 
 with menu_col2:
-    st.title("لوحة تحكم مشروع العمر الكلية")
-    st.caption("عام 2026 — تحديث لحظي مباشر من قاعدة البيانات")
+    st.title("إحصاءات برنامج مشروع العمر ")
 
 with menu_col3:
     st.write("")
-    if st.button("🔄 تحديث البيانات اللحظية", use_container_width=True):
+    if st.button("🔄 تحديث البيانات ", use_container_width=True):
         st.cache_data.clear()
         st.toast("تم تحديث وجلب البيانات بنجاح! 🚀")
         st.rerun()
@@ -124,16 +123,16 @@ st.write("---")
 # =========================================================
 # 4. الإحصائيات العامة الكلية للمشروع
 # =========================================================
-st.markdown("### 📊 الإحصائيات العامة الكلية للمشروع")
+st.markdown("### 📊 الإحصائيات العامة لبرنامج مشروع العمر ")
 try:
     totals_df = get_data(f"SELECT SUM(CASE WHEN type = 'مسموع' THEN {duration_to_hours_expr('duration_time')} ELSE 0 END) as audio_hours, SUM(CASE WHEN type = 'مقروء' THEN pages_count ELSE 0 END) as read_pages FROM Courses_Materials;")
     events_df = get_data(f"SELECT SUM({duration_to_hours_expr('duration_time')}) as ev_hours FROM Stage_Events;")
     comps_df = get_data("SELECT SUM(contests_count) as c_count FROM Competitions;")
 
     c1, c2, c3, c4 = st.columns(4)
-    with c1: kpi_card("🎙️", "إجمالي الساعات المسموعة", f"{totals_df['audio_hours'].iloc[0]:.1f}", "ساعة", GOLD)
+    with c1: kpi_card("🎙️", "إجمالي المواد المسموعة", f"{totals_df['audio_hours'].iloc[0]:.1f}", "ساعة", GOLD)
     with c2: kpi_card("📖", "إجمالي الصفحات المقروءة", f"{int(totals_df['read_pages'].iloc[0])}", "صفحة", EMERALD)
-    with c3: kpi_card("👥", "إجمالي ساعات الفعاليات", f"{events_df['ev_hours'].iloc[0]:.1f}", "ساعة", SKY)
+    with c3: kpi_card("👥", "إجمالي المدارسات والفعاليات", f"{events_df['ev_hours'].iloc[0]:.1f}", "ساعة", SKY)
     with c4: kpi_card("🏆", "إجمالي المسابقات", f"{int(comps_df['c_count'].iloc[0])}", "مسابقة", ROSE)
 except:
     st.error("يرجى التأكد من تشغيل البيانات بنجاح.")
@@ -158,7 +157,7 @@ st.write("---")
 # =========================================================
 # 6. أزرار إظهار الفرز التفصيلي (أسفل الجدول مباشرة)
 # =========================================================
-st.markdown("### 🗂️ استعراض الفرز والتقارير التفصيلية للمشروع")
+st.markdown("### 🗂️ استعراض الفرز والتقارير التفصيلية للبرنامج")
 btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 2])
 
 with btn_col1:
@@ -191,9 +190,9 @@ if st.session_state.view_mode == 'specialty':
         spec_comp = get_data(f"SELECT IFNULL(SUM(c.contests_count), 0) as c_cnt FROM Competitions c JOIN Specialty_Stages ss ON c.stage_id = ss.stage_id JOIN Specialties s ON ss.specialty_id = s.specialty_id WHERE s.name = '{selected_spec}' AND c.stage_id != 100;")
 
         sp1, sp2, sp3, sp4 = st.columns(4)
-        with sp1: kpi_card("🎙️", "ساعات الاستماع المقررة", f"{spec_stats['audio_h'].iloc[0]:.1f}", "ساعة", GOLD)
-        with sp2: kpi_card("📖", "صفحات القراءة المقررة", f"{int(spec_stats['read_p'].iloc[0])}", "صفحة", EMERALD)
-        with sp3: kpi_card("👥", "ساعات الفعاليات", f"{spec_ev['ev_h'].iloc[0]:.1f}", "ساعة", SKY)
+        with sp1: kpi_card("🎙️", "ساعات المواد المسموعة ", f"{spec_stats['audio_h'].iloc[0]:.1f}", "ساعة", GOLD)
+        with sp2: kpi_card("📖", "صفحات المواد المقروءة", f"{int(spec_stats['read_p'].iloc[0])}", "صفحة", EMERALD)
+        with sp3: kpi_card("👥", "من المدارسات والفعاليات", f"{spec_ev['ev_h'].iloc[0]:.1f}", "ساعة", SKY)
         with sp4: kpi_card("🏆", "المسابقات المعقودة", f"{int(spec_comp['c_cnt'].iloc[0])}", "مسابقة", ROSE)
 
         st.markdown(f"##### 📋 المراحل المنهجية المحددة لتخصص ({selected_spec})")
@@ -214,9 +213,9 @@ elif st.session_state.view_mode == 'stage':
         stage_comp = get_data(f"SELECT IFNULL(SUM(contests_count), 0) as c_cnt FROM Competitions WHERE stage_id = {current_stage_id};")
 
         c1, c2, c3, c4 = st.columns(4)
-        with c1: kpi_card("🎙️", "ساعات الاستماع", f"{stage_stats['audio_h'].iloc[0]:.1f}", "ساعة", GOLD)
-        with c2: kpi_card("📖", "صفحات القراءة", f"{int(stage_stats['read_p'].iloc[0])}", "صفحة", EMERALD)
-        with c3: kpi_card("👥", "ساعات الفعاليات", f"{stage_ev['ev_h'].iloc[0]:.1f}", "ساعة", SKY)
+        with c1: kpi_card("🎙️", "المقررات المسموعة", f"{stage_stats['audio_h'].iloc[0]:.1f}", "ساعة", GOLD)
+        with c2: kpi_card("📖", "المواد المقروءة", f"{int(stage_stats['read_p'].iloc[0])}", "صفحة", EMERALD)
+        with c3: kpi_card("👥", "المدارسات والفعاليات", f"{stage_ev['ev_h'].iloc[0]:.1f}", "ساعة", SKY)
         with c4: kpi_card("🏆", "المسابقات المعقودة", f"{int(stage_comp['c_cnt'].iloc[0])}", "مسابقة", ROSE)
 
         st.write("---")
