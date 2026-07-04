@@ -31,40 +31,61 @@ CHART_PALETTE = [EMERALD, SKY, GOLD, "#a78bfa", ROSE, "#fb923c"]
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1tKLDo08oDTpxa9uCpHckN50DQDy4ALy50bgNsRcL2XA/edit?usp=sharing"
 
 # حقن CSS شامل لفرض محاذاة اليمين المطلقة لكافة النصوص والعناوين
-st.markdown("""
+st.markdown(f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;900&display=swap');
 
     /* استهداف مطلق لكل عناصر التطبيق وفرض المحاذاة والخط جهة اليمين */
-    * {
+    * {{
         font-family: 'Tajawal', sans-serif !important;
         text-align: right !important;
         direction: rtl !important;
-    }
-    
+    }}
+
     /* استثناء خاص لحاوية أرقام بطاقات الـ KPI لكي لا تنعكس الأرقام العشرية */
-    .kpi-num-fix {
+    .kpi-num-fix {{
         direction: ltr !important;
         text-align: right !important;
         display: inline-block !important;
         font-family: monospace !important;
-    }
-    
+    }}
+
+    /* شارة نطاق التواريخ الظاهرة أسفل العنوان الرئيسي */
+    .section-badge {{
+        display: inline-block;
+        background: linear-gradient(145deg, {NAVY} 0%, {NAVY_DARK} 100%);
+        color: {TEXT_MUTED};
+        border-right: 3px solid {GOLD};
+        border-radius: 10px;
+        padding: 8px 14px;
+        font-size: 0.95rem;
+        margin-top: 6px;
+    }}
+
+    /* تنسيق التواريخ داخل الشارة لمنع انعكاس الأرقام */
+    .num-date {{
+        direction: ltr !important;
+        display: inline-block !important;
+        font-family: monospace !important;
+        color: {TEXT_MAIN};
+        font-weight: 700;
+    }}
+
     /* تأمين التبويبات (Tabs) لتبدأ الاصطفاف من اليمين قسراً */
-    .stTabs [data-baseweb="tab-list"] {
+    .stTabs [data-baseweb="tab-list"] {{
         justify-content: flex-start !important;
-    }
-    
+    }}
+
     /* إجبار الجداول ومحتوياتها على محاذاة اليمين المطلقة */
-    table, th, td, [data-testid="stTable"] * {
+    table, th, td, [data-testid="stTable"] * {{
         text-align: right !important;
         direction: rtl !important;
-    }
-    
+    }}
+
     /* إخفاء شريط التمرير الأفقي السفلي تماماً */
-    html, body, [data-testid="stAppViewContainer"] {
+    html, body, [data-testid="stAppViewContainer"] {{
         overflow-x: hidden !important;
-    }
+    }}
     </style>
 """, unsafe_allow_html=True)
 
@@ -76,6 +97,7 @@ def get_google_sheet_url(sheet_name: str) -> str:
     base_url = SHEET_URL.split("/edit")[0]
     return f"{base_url}/gviz/tq?tqx=out:csv&sheet={sheet_name}"
 
+
 @st.cache_data(ttl=300)
 def get_table(sheet_name: str) -> pd.DataFrame:
     """تجلب التبويب من Google Sheets وتحوله إلى DataFrame"""
@@ -83,17 +105,29 @@ def get_table(sheet_name: str) -> pd.DataFrame:
     df = pd.read_csv(url)
     return df
 
+
 def parse_duration_to_hours(duration_str):
-    """تحول نصوص الوقت مثل 14:51:11 إلى ساعات عشرية بدلاً من تعبير SQL القديم"""
+    """تحول نصوص الوقت مثل 14:51:11 إلى ساعات عشرية"""
     try:
         if pd.isna(duration_str) or str(duration_str).strip() == "":
             return 0.0
         parts = list(map(int, str(duration_str).split(':')))
         if len(parts) == 3:
-            return parts[0] + parts[1]/60.0 + parts[2]/3600.0
+            return parts[0] + parts[1] / 60.0 + parts[2] / 3600.0
         return 0.0
-    except:
+    except (ValueError, TypeError):
         return 0.0
+
+
+def format_date_clean(date_val, default_text="مستمرة"):
+    """دالة ذكية لتنسيق التاريخ بشكل صحيح، وإذا كانت فارغة تكتب نص مستمر"""
+    if pd.isna(date_val) or str(date_val).strip().lower() in ["nan", "null", "none", ""]:
+        return default_text
+    try:
+        return datetime.strptime(str(date_val).strip(), "%Y-%m-%d").strftime("%Y/%m/%d")
+    except ValueError:
+        return str(date_val)
+
 
 def kpi_card(icon: str, label: str, value: str, unit: str, accent: str):
     st.markdown(f"""
@@ -109,12 +143,21 @@ def kpi_card(icon: str, label: str, value: str, unit: str, accent: str):
         </div>
     """, unsafe_allow_html=True)
 
+
 def show_table(df: pd.DataFrame):
     if df.empty:
         return
-    st.table(df.style.hide(axis="index"))
+    # إعادة ضبط الفهرس أولاً حتى لا تظهر أرقام قديمة متبقية من عمليات الفرز والتصفية
+    clean_df = df.reset_index(drop=True)
+    styler = clean_df.style
+    # إخفاء عمود فهرس الأرقام تماماً وبشكل حتمي ومستقر (متوافق مع إصدارات pandas الحديثة والقديمة)
+    try:
+        styler = styler.hide(axis="index")
+    except AttributeError:
+        styler = styler.hide_index()
+    st.table(styler)
 
-# إدارة حالة العرض لفرز الأزرار عبر استغلال الـ Session State
+
 if 'view_mode' not in st.session_state:
     st.session_state.view_mode = 'none'
 
@@ -129,7 +172,7 @@ try:
     specialties_df = get_table("Specialties")
     spec_stages_df = get_table("Specialty_Stages")
 except Exception as e:
-    st.error("خطأ في الاتصال بـ Google Sheets. تأكد من أسماء التبويبات وصلاحية الرابط.")
+    st.error(f"خطأ في الاتصال بـ Google Sheets. تأكد من أسماء التبويبات وصلاحية الرابط. ({e})")
     st.stop()
 
 menu_col1, menu_col2, menu_col3 = st.columns([1, 4, 2])
@@ -140,32 +183,31 @@ with menu_col1:
 
 with menu_col2:
     st.title("إحصاءات برنامج مشروع العمر")
-  # حساب وعرض التواريخ ديناميكياً من جدول Stages
+    # حساب وعرض التواريخ ديناميكياً من جدول Stages
     try:
         # تصفية المراحل لاستبعاد المرحلة العامة رقم 100 لحساب دقيق للفترة المنهجية
         filtered_stages = stages_df[stages_df['stage_id'] != 100].copy()
-        
-        # التأكد من تحويل الأعمدة إلى نصوص وتصفية القيم الفارغة
+
+        # التأكد من تصفية القيم الفارغة في أعمدة التواريخ
         filtered_stages = filtered_stages.dropna(subset=['start_date_gregorian', 'end_date_gregorian'])
-        
+
         if not filtered_stages.empty:
             # جلب أقل تاريخ بداية وأعلى تاريخ نهاية
             first_date_raw = filtered_stages['start_date_gregorian'].min()
             last_date_raw = filtered_stages['end_date_gregorian'].max()
-            
-            # تعديل التنسيق هنا ليخرج بصيغة (السنة/الشهر/اليوم) بشكل صارم ومحمي هندسياً
+
+            # تنسيق التواريخ بصيغة (السنة/الشهر/اليوم)
             fd = datetime.strptime(str(first_date_raw).strip(), "%Y-%m-%d").strftime("%Y/%m/%d")
             ld = datetime.strptime(str(last_date_raw).strip(), "%Y-%m-%d").strftime("%Y/%m/%d")
 
-        
             st.markdown(
-                f"<div class='section-badge'>🗓️ الإحصاء من  "
+                f"<div class='section-badge'>🗓️ الإحصاء من "
                 f"<span class='num-date'>{fd}</span> إلى <span class='num-date'>{ld}</span></div>",
                 unsafe_allow_html=True,
             )
         else:
             st.markdown("<div class='section-badge'>🗓️ يشمل جميع المراحل المعتمدة</div>", unsafe_allow_html=True)
-    except Exception as e:
+    except (ValueError, KeyError):
         st.markdown("<div class='section-badge'>🗓️ يشمل جميع المراحل المعتمدة</div>", unsafe_allow_html=True)
 
 with menu_col3:
@@ -180,7 +222,7 @@ st.write("---")
 # =========================================================
 # 4. الإحصائيات العامة الكلية للمشروع
 # =========================================================
-st.markdown("### 📊 الإحصائيات العامة لبرنامج مشروع العمر  ")
+st.markdown("### 📊 الإحصائيات العامة لبرنامج مشروع العمر")
 try:
     # حساب الساعات المسموعة والصفحات المقروءة
     courses_df['hours'] = courses_df['duration_time'].apply(parse_duration_to_hours)
@@ -193,10 +235,14 @@ try:
     c_count = competitions_df['contests_count'].sum()
 
     c1, c2, c3, c4 = st.columns(4)
-    with c1: kpi_card("🎙️", "إجمالي الساعات المسموعة", f"{audio_hours:.1f}", "ساعة", GOLD)
-    with c2: kpi_card("📖", "إجمالي الصفحات المقروءة", f"{int(read_pages)}", "صفحة", EMERALD)
-    with c3: kpi_card("👥", "إجمالي ساعات المدارسات و الفعاليات", f"{ev_hours:.1f}", "ساعة", SKY)
-    with c4: kpi_card("🏆", "إجمالي المسابقات", f"{int(c_count)}", "مسابقة", ROSE)
+    with c1:
+        kpi_card("🎙️", "إجمالي الساعات المسموعة", f"{audio_hours:.1f}", "ساعة", GOLD)
+    with c2:
+        kpi_card("📖", "إجمالي الصفحات المقروءة", f"{int(read_pages)}", "صفحة", EMERALD)
+    with c3:
+        kpi_card("👥", "إجمالي ساعات المدارسات و الفعاليات", f"{ev_hours:.1f}", "ساعة", SKY)
+    with c4:
+        kpi_card("🏆", "إجمالي المسابقات", f"{int(c_count)}", "مسابقة", ROSE)
 except Exception as e:
     st.error(f"حدث خطأ أثناء حساب الإحصائيات: {e}")
 
@@ -213,7 +259,7 @@ try:
         show_table(gen_events_df)
     else:
         st.caption("لا توجد فعاليات عامة مسجلة حالياً.")
-except:
+except (KeyError, TypeError):
     st.warning("تعذر جلب الأنشطة العامة للمشروع.")
 
 st.write("---")
@@ -221,7 +267,7 @@ st.write("---")
 # =========================================================
 # 6. أزرار إظهار الفرز التفصيلي (أسفل الجدول مباشرة)
 # =========================================================
-st.markdown("### 🗂️استعراض الفرز والتقارير التفصيلية للبرنامج")
+st.markdown("### 🗂️ استعراض الفرز والتقارير التفصيلية للبرنامج")
 btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 2])
 
 with btn_col1:
@@ -239,6 +285,7 @@ with btn_col3:
             st.rerun()
 
 st.write("")
+
 # ---------------------------------------------------------
 # سياق عرض الفرز المختار ديناميكياً
 # ---------------------------------------------------------
@@ -247,40 +294,52 @@ if st.session_state.view_mode == 'specialty':
     try:
         specialties_options = specialties_df['name'].tolist()
         selected_spec = st.selectbox("👤 حدد التخصص المراد استعراض إحصاءاته:", specialties_options)
-        
+
         spec_row = specialties_df[specialties_df['name'] == selected_spec]
         if not spec_row.empty:
             spec_id = spec_row['specialty_id'].iloc[0]
-            
+
             allowed_stages = spec_stages_df[spec_stages_df['specialty_id'] == spec_id]['stage_id'].tolist()
             allowed_stages = [x for x in allowed_stages if x != 100]
-            
+
             spec_courses = courses_df[courses_df['stage_id'].isin(allowed_stages)].copy()
             spec_courses['hours'] = spec_courses['duration_time'].apply(parse_duration_to_hours)
             spec_audio_h = spec_courses[spec_courses['type'] == 'مسموع']['hours'].sum()
             spec_read_p = spec_courses[spec_courses['type'] == 'مقروء']['pages_count'].sum()
-            
+
             spec_events = events_df[events_df['stage_id'].isin(allowed_stages)].copy()
             spec_events['hours'] = spec_events['duration_time'].apply(parse_duration_to_hours)
             spec_ev_h = spec_events['hours'].sum()
-            
+
             spec_c_cnt = competitions_df[competitions_df['stage_id'].isin(allowed_stages)]['contests_count'].sum()
 
             sp1, sp2, sp3, sp4 = st.columns(4)
-            with sp1: kpi_card("🎙️", "من المواد المسموعة  ", f"{spec_audio_h:.1f}", "ساعة", GOLD)
-            with sp2: kpi_card("📖", "من الصفحات المقروءة  ", f"{int(spec_read_p)}", "صفحة", EMERALD)
-            with sp3: kpi_card("👥", "من المدارسات و الفعاليات", f"{spec_ev_h:.1f}", "ساعة", SKY)
-            with sp4: kpi_card("🏆", "من المسابقات المعقودة", f"{int(spec_c_cnt)}", "مسابقة", ROSE)
+            with sp1:
+                kpi_card("🎙️", "من المواد المسموعة", f"{spec_audio_h:.1f}", "ساعة", GOLD)
+            with sp2:
+                kpi_card("📖", "من الصفحات المقروءة", f"{int(spec_read_p)}", "صفحة", EMERALD)
+            with sp3:
+                kpi_card("👥", "من المدارسات و الفعاليات", f"{spec_ev_h:.1f}", "ساعة", SKY)
+            with sp4:
+                kpi_card("🏆", "من المسابقات المعقودة", f"{int(spec_c_cnt)}", "مسابقة", ROSE)
 
             st.markdown(f"##### 📋 المراحل الدراسية لتخصص ({selected_spec})")
-            spec_stages_df_view = stages_df[stages_df['stage_id'].isin(allowed_stages)][['name', 'start_date_gregorian', 'end_date_gregorian']].copy()
+            spec_stages_df_view = stages_df[stages_df['stage_id'].isin(allowed_stages)][
+                ['name', 'start_date_gregorian', 'end_date_gregorian']
+            ].copy()
             spec_stages_df_view.columns = ['اسم المرحلة', 'تاريخ البداية', 'تاريخ الانتهاء']
-            
-            spec_stages_df_view['تاريخ البداية'] = spec_stages_df_view['تاريخ البداية'].apply(lambda x: datetime.strptime(str(x).strip(), "%Y-%m-%d").strftime("%Y/%m/%d") if pd.notna(x) else x)
-            spec_stages_df_view['تاريخ الانتهاء'] = spec_stages_df_view['تاريخ الانتهاء'].apply(lambda x: datetime.strptime(str(x).strip(), "%Y-%m-%d").strftime("%Y/%m/%d") if pd.notna(x) else x)
-            
+
+            # 🛠️ معالجة التواريخ في جدول التخصص لمنع ظهور nan واستبدالها بكلمة مستمرة
+            spec_stages_df_view['تاريخ البداية'] = spec_stages_df_view['تاريخ البداية'].apply(format_date_clean)
+            spec_stages_df_view['تاريخ الانتهاء'] = spec_stages_df_view['تاريخ الانتهاء'].apply(
+                lambda x: format_date_clean(x, "مستمرة حاليا")
+            )
+
+            # ✅ تم إصلاح الإزاحة هنا: الاستدعاء أصبح داخل شرط عدم فراغ التخصص كما يجب
             show_table(spec_stages_df_view)
-    except Exception as e:
+        else:
+            st.caption("لم يتم العثور على بيانات لهذا التخصص.")
+    except (KeyError, IndexError, TypeError):
         st.warning("لا توجد بيانات مسجلة حالياً لهذا التخصص.")
 
 elif st.session_state.view_mode == 'stage':
@@ -288,7 +347,7 @@ elif st.session_state.view_mode == 'stage':
     try:
         stages_options = stages_df[stages_df['stage_id'] != 100]['name'].tolist()
         selected_stage = st.selectbox("🎯 حدد المرحلة الدراسية المعنية:", stages_options)
-        
+
         stage_row = stages_df[stages_df['name'] == selected_stage]
         if not stage_row.empty:
             current_stage_id = int(stage_row['stage_id'].iloc[0])
@@ -305,16 +364,20 @@ elif st.session_state.view_mode == 'stage':
             stage_c_cnt = competitions_df[competitions_df['stage_id'] == current_stage_id]['contests_count'].sum()
 
             c1, c2, c3, c4 = st.columns(4)
-            with c1: kpi_card("🎙️", "ساعات الاستماع المقررة ", f"{stage_audio_h:.1f}", "ساعة", GOLD)
-            with c2: kpi_card("📖", "صفحات القراءة المقررة ", f"{int(stage_read_p)}", "صفحة", EMERALD)
-            with c3: kpi_card("👥", "ساعات المدارسات و الفعاليات", f"{stage_ev_h:.1f}", "ساعة", SKY)
-            with c4: kpi_card("🏆", "المسابقات المقررة", f"{int(stage_c_cnt)}", "مسابقة", ROSE)
+            with c1:
+                kpi_card("🎙️", "ساعات الاستماع المقررة", f"{stage_audio_h:.1f}", "ساعة", GOLD)
+            with c2:
+                kpi_card("📖", "صفحات القراءة المقررة", f"{int(stage_read_p)}", "صفحة", EMERALD)
+            with c3:
+                kpi_card("👥", "ساعات المدارسات و الفعاليات", f"{stage_ev_h:.1f}", "ساعة", SKY)
+            with c4:
+                kpi_card("🏆", "المسابقات المقررة", f"{int(stage_c_cnt)}", "مسابقة", ROSE)
 
             st.write("---")
             tab1, tab2, tab3 = st.tabs(["📚 المقررات الدراسية", "👥 الفعاليات والمدارسات", "🎯 التخصصات المعنية"])
-            
+
             with tab1:
-                # 🛠️ إصلاح المشكلة هنا: بناء عمود ذكي يعتمد على نوع المقرر
+                # 🛠️ بناء عمود ذكي يعتمد على نوع المقرر
                 def build_size_column(row):
                     if row['type'] == 'مسموع':
                         return str(row['duration_time'])
@@ -324,15 +387,15 @@ elif st.session_state.view_mode == 'stage':
 
                 # تطبيق الدالة الذكية لملء عمود الحجم/المدى بشكل صحيح
                 stage_courses['المدى / الحجم المقرّر'] = stage_courses.apply(build_size_column, axis=1)
-                
+
                 view_c = stage_courses[['title', 'type', 'المدى / الحجم المقرّر']].copy()
                 view_c.columns = ['اسم المقرر الدراسي', 'نوع المقرر', 'المدى / الحجم المقرّر']
-                
+
                 if not view_c.empty:
                     show_table(view_c)
                 else:
                     st.caption("لا توجد مقررات مسجلة لهذه المرحلة.")
-                    
+
             with tab2:
                 view_e = stage_events[['title', 'duration_time']].copy()
                 view_e.columns = ['عنوان الفعالية', 'المدة الزمنية']
@@ -340,11 +403,13 @@ elif st.session_state.view_mode == 'stage':
                     show_table(view_e)
                 else:
                     st.caption("لا توجد فعاليات مسجلة لهذه المرحلة.")
-                    
+
             with tab3:
                 allowed_specs = spec_stages_df[spec_stages_df['stage_id'] == current_stage_id]['specialty_id'].tolist()
                 view_s = specialties_df[specialties_df['specialty_id'].isin(allowed_specs)][['name']].copy()
                 view_s.columns = ['التخصص المعني بالدراسة']
                 show_table(view_s)
+        else:
+            st.caption("لم يتم العثور على بيانات لهذه المرحلة.")
     except Exception as e:
         st.error(f"حدث خطأ أثناء الفرز: {e}")
