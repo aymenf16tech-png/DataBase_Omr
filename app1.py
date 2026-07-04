@@ -1,11 +1,10 @@
 import streamlit as st
-import sqlite3
 import pandas as pd
 import os
 from datetime import datetime
 
 # =========================================================
-# 1. إعدادات الصفحة العامة
+# 1. إعدادات الصفحة العامة والهوية البصرية (الألوان أولاً)
 # =========================================================
 logo_path = "logo.jfif"
 
@@ -15,14 +14,21 @@ st.set_page_config(
     layout="wide",
 )
 
-# هوية بصرية مبسطة للبطاقات (HTML قياسي متوافق مع الاتجاه)
+# تعريف الألوان في الأعلى لكي تراها جميع الدوال
+NAVY_DARK = "#0f172a"
 NAVY = "#1e293b"
+NAVY_LIGHT = "#334155"
 GOLD = "#d97706"
 EMERALD = "#10b981"
 SKY = "#38bdf8"
 ROSE = "#f43f5e"
 TEXT_MAIN = "#f8fafc"
 TEXT_MUTED = "#94a3b8"
+
+CHART_PALETTE = [EMERALD, SKY, GOLD, "#a78bfa", ROSE, "#fb923c"]
+
+# ⚠️ استبدل هذا الرابط برابط ملف الـ Google Sheets الخاص بك
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1tKLDo08oDTpxa9uCpHckN50DQDy4ALy50bgNsRcL2XA/edit?usp=sharing"
 
 # حقن CSS شامل لفرض محاذاة اليمين المطلقة لكافة النصوص والعناوين
 st.markdown("""
@@ -65,16 +71,29 @@ st.markdown("""
 # =========================================================
 # 2. أدوات مساعدة وقاعدة البيانات
 # =========================================================
+def get_google_sheet_url(sheet_name: str) -> str:
+    """تحول رابط المعاينة إلى رابط تحميل مباشر بصيغة CSV لتبويب معين"""
+    base_url = SHEET_URL.split("/edit")[0]
+    return f"{base_url}/gviz/tq?tqx=out:csv&sheet={sheet_name}"
+
 @st.cache_data(ttl=300)
-def get_data(query: str) -> pd.DataFrame:
-    conn = sqlite3.connect('Omr_Project.db')
-    df = pd.read_sql_query(query, conn)
-    conn.close()
+def get_table(sheet_name: str) -> pd.DataFrame:
+    """تجلب التبويب من Google Sheets وتحوله إلى DataFrame"""
+    url = get_google_sheet_url(sheet_name)
+    df = pd.read_csv(url)
     return df
 
-def duration_to_hours_expr(col: str) -> str:
-    return (f"(SUBSTR({col}, 1, 2) * 3600 + SUBSTR({col}, 4, 2) * 60 "
-            f"+ SUBSTR({col}, 7, 2)) / 3600.0")
+def parse_duration_to_hours(duration_str):
+    """تحول نصوص الوقت مثل 14:51:11 إلى ساعات عشرية بدلاً من تعبير SQL القديم"""
+    try:
+        if pd.isna(duration_str) or str(duration_str).strip() == "":
+            return 0.0
+        parts = list(map(int, str(duration_str).split(':')))
+        if len(parts) == 3:
+            return parts[0] + parts[1]/60.0 + parts[2]/3600.0
+        return 0.0
+    except:
+        return 0.0
 
 def kpi_card(icon: str, label: str, value: str, unit: str, accent: str):
     st.markdown(f"""
@@ -100,8 +119,19 @@ if 'view_mode' not in st.session_state:
     st.session_state.view_mode = 'none'
 
 # =========================================================
-# 3. الترويسة الرئيسية والتحكم العلوي
+# 3. الترويسة الرئيسية والتحكم العلوي وجلب البيانات
 # =========================================================
+try:
+    courses_df = get_table("Courses_Materials")
+    events_df = get_table("Stage_Events")
+    competitions_df = get_table("Competitions")
+    stages_df = get_table("Stages")
+    specialties_df = get_table("Specialties")
+    spec_stages_df = get_table("Specialty_Stages")
+except Exception as e:
+    st.error("خطأ في الاتصال بـ Google Sheets. تأكد من أسماء التبويبات وصلاحية الرابط.")
+    st.stop()
+
 menu_col1, menu_col2, menu_col3 = st.columns([1, 4, 2])
 
 with menu_col1:
@@ -109,11 +139,38 @@ with menu_col1:
         st.image(logo_path, width=80)
 
 with menu_col2:
-    st.title("إحصاءات برنامج مشروع العمر ")
+    st.title("إحصاءات برنامج مشروع العمر")
+  # حساب وعرض التواريخ ديناميكياً من جدول Stages
+    try:
+        # تصفية المراحل لاستبعاد المرحلة العامة رقم 100 لحساب دقيق للفترة المنهجية
+        filtered_stages = stages_df[stages_df['stage_id'] != 100].copy()
+        
+        # التأكد من تحويل الأعمدة إلى نصوص وتصفية القيم الفارغة
+        filtered_stages = filtered_stages.dropna(subset=['start_date_gregorian', 'end_date_gregorian'])
+        
+        if not filtered_stages.empty:
+            # جلب أقل تاريخ بداية وأعلى تاريخ نهاية
+            first_date_raw = filtered_stages['start_date_gregorian'].min()
+            last_date_raw = filtered_stages['end_date_gregorian'].max()
+            
+            # تعديل التنسيق هنا ليخرج بصيغة (السنة/الشهر/اليوم) بشكل صارم ومحمي هندسياً
+            fd = datetime.strptime(str(first_date_raw).strip(), "%Y-%m-%d").strftime("%Y/%m/%d")
+            ld = datetime.strptime(str(last_date_raw).strip(), "%Y-%m-%d").strftime("%Y/%m/%d")
+
+        
+            st.markdown(
+                f"<div class='section-badge'>🗓️ الإحصاء من  "
+                f"<span class='num-date'>{fd}</span> إلى <span class='num-date'>{ld}</span></div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown("<div class='section-badge'>🗓️ يشمل جميع المراحل المعتمدة</div>", unsafe_allow_html=True)
+    except Exception as e:
+        st.markdown("<div class='section-badge'>🗓️ يشمل جميع المراحل المعتمدة</div>", unsafe_allow_html=True)
 
 with menu_col3:
     st.write("")
-    if st.button("🔄 تحديث البيانات ", use_container_width=True):
+    if st.button("🔄 تحديث البيانات اللحظية", use_container_width=True):
         st.cache_data.clear()
         st.toast("تم تحديث وجلب البيانات بنجاح! 🚀")
         st.rerun()
@@ -123,19 +180,25 @@ st.write("---")
 # =========================================================
 # 4. الإحصائيات العامة الكلية للمشروع
 # =========================================================
-st.markdown("### 📊 الإحصائيات العامة لبرنامج مشروع العمر ")
+st.markdown("### 📊 الإحصائيات العامة لبرنامج مشروع العمر  ")
 try:
-    totals_df = get_data(f"SELECT SUM(CASE WHEN type = 'مسموع' THEN {duration_to_hours_expr('duration_time')} ELSE 0 END) as audio_hours, SUM(CASE WHEN type = 'مقروء' THEN pages_count ELSE 0 END) as read_pages FROM Courses_Materials;")
-    events_df = get_data(f"SELECT SUM({duration_to_hours_expr('duration_time')}) as ev_hours FROM Stage_Events;")
-    comps_df = get_data("SELECT SUM(contests_count) as c_count FROM Competitions;")
+    # حساب الساعات المسموعة والصفحات المقروءة
+    courses_df['hours'] = courses_df['duration_time'].apply(parse_duration_to_hours)
+    audio_hours = courses_df[courses_df['type'] == 'مسموع']['hours'].sum()
+    read_pages = courses_df[courses_df['type'] == 'مقروء']['pages_count'].sum()
+
+    # حساب ساعات الفعاليات والمسابقات
+    events_df['hours'] = events_df['duration_time'].apply(parse_duration_to_hours)
+    ev_hours = events_df['hours'].sum()
+    c_count = competitions_df['contests_count'].sum()
 
     c1, c2, c3, c4 = st.columns(4)
-    with c1: kpi_card("🎙️", "إجمالي المواد المسموعة", f"{totals_df['audio_hours'].iloc[0]:.1f}", "ساعة", GOLD)
-    with c2: kpi_card("📖", "إجمالي الصفحات المقروءة", f"{int(totals_df['read_pages'].iloc[0])}", "صفحة", EMERALD)
-    with c3: kpi_card("👥", "إجمالي المدارسات والفعاليات", f"{events_df['ev_hours'].iloc[0]:.1f}", "ساعة", SKY)
-    with c4: kpi_card("🏆", "إجمالي المسابقات", f"{int(comps_df['c_count'].iloc[0])}", "مسابقة", ROSE)
-except:
-    st.error("يرجى التأكد من تشغيل البيانات بنجاح.")
+    with c1: kpi_card("🎙️", "إجمالي الساعات المسموعة", f"{audio_hours:.1f}", "ساعة", GOLD)
+    with c2: kpi_card("📖", "إجمالي الصفحات المقروءة", f"{int(read_pages)}", "صفحة", EMERALD)
+    with c3: kpi_card("👥", "إجمالي ساعات المدارسات و الفعاليات", f"{ev_hours:.1f}", "ساعة", SKY)
+    with c4: kpi_card("🏆", "إجمالي المسابقات", f"{int(c_count)}", "مسابقة", ROSE)
+except Exception as e:
+    st.error(f"حدث خطأ أثناء حساب الإحصائيات: {e}")
 
 st.write("---")
 
@@ -144,7 +207,8 @@ st.write("---")
 # =========================================================
 st.markdown("### ✨ البرنامج العام والفعاليات المشتركة")
 try:
-    gen_events_df = get_data("SELECT title as 'عنوان الفعالية', duration_time as 'المدة الزمنية' FROM Stage_Events WHERE stage_id = 100;")
+    gen_events_df = events_df[events_df['stage_id'] == 100][['title', 'duration_time']].copy()
+    gen_events_df.columns = ['عنوان الفعالية', 'المدة الزمنية']
     if not gen_events_df.empty:
         show_table(gen_events_df)
     else:
@@ -157,7 +221,7 @@ st.write("---")
 # =========================================================
 # 6. أزرار إظهار الفرز التفصيلي (أسفل الجدول مباشرة)
 # =========================================================
-st.markdown("### 🗂️ استعراض الفرز والتقارير التفصيلية للبرنامج")
+st.markdown("### 🗂️استعراض الفرز والتقارير التفصيلية للبرنامج")
 btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 2])
 
 with btn_col1:
@@ -175,69 +239,112 @@ with btn_col3:
             st.rerun()
 
 st.write("")
-
 # ---------------------------------------------------------
 # سياق عرض الفرز المختار ديناميكياً
 # ---------------------------------------------------------
 if st.session_state.view_mode == 'specialty':
     st.markdown("#### 🔍 الفرز والإحصاء التفصيلي حسب التخصص الدراسي")
     try:
-        specialties_options = get_data("SELECT name FROM Specialties;")['name'].tolist()
+        specialties_options = specialties_df['name'].tolist()
         selected_spec = st.selectbox("👤 حدد التخصص المراد استعراض إحصاءاته:", specialties_options)
         
-        spec_stats = get_data(f"SELECT IFNULL(SUM(CASE WHEN cm.type='مسموع' THEN {duration_to_hours_expr('cm.duration_time')} ELSE 0 END), 0) as audio_h, IFNULL(SUM(CASE WHEN cm.type='مقروء' THEN cm.pages_count ELSE 0 END), 0) as read_p FROM Courses_Materials cm JOIN Specialty_Stages ss ON cm.stage_id = ss.stage_id JOIN Specialties s ON ss.specialty_id = s.specialty_id WHERE s.name = '{selected_spec}' AND cm.stage_id != 100;")
-        spec_ev = get_data(f"SELECT IFNULL(SUM({duration_to_hours_expr('se.duration_time')}), 0) as ev_h FROM Stage_Events se JOIN Specialty_Stages ss ON se.stage_id = ss.stage_id JOIN Specialties s ON ss.specialty_id = s.specialty_id WHERE s.name = '{selected_spec}' AND se.stage_id != 100;")
-        spec_comp = get_data(f"SELECT IFNULL(SUM(c.contests_count), 0) as c_cnt FROM Competitions c JOIN Specialty_Stages ss ON c.stage_id = ss.stage_id JOIN Specialties s ON ss.specialty_id = s.specialty_id WHERE s.name = '{selected_spec}' AND c.stage_id != 100;")
+        spec_row = specialties_df[specialties_df['name'] == selected_spec]
+        if not spec_row.empty:
+            spec_id = spec_row['specialty_id'].iloc[0]
+            
+            allowed_stages = spec_stages_df[spec_stages_df['specialty_id'] == spec_id]['stage_id'].tolist()
+            allowed_stages = [x for x in allowed_stages if x != 100]
+            
+            spec_courses = courses_df[courses_df['stage_id'].isin(allowed_stages)].copy()
+            spec_courses['hours'] = spec_courses['duration_time'].apply(parse_duration_to_hours)
+            spec_audio_h = spec_courses[spec_courses['type'] == 'مسموع']['hours'].sum()
+            spec_read_p = spec_courses[spec_courses['type'] == 'مقروء']['pages_count'].sum()
+            
+            spec_events = events_df[events_df['stage_id'].isin(allowed_stages)].copy()
+            spec_events['hours'] = spec_events['duration_time'].apply(parse_duration_to_hours)
+            spec_ev_h = spec_events['hours'].sum()
+            
+            spec_c_cnt = competitions_df[competitions_df['stage_id'].isin(allowed_stages)]['contests_count'].sum()
 
-        sp1, sp2, sp3, sp4 = st.columns(4)
-        with sp1: kpi_card("🎙️", "ساعات المواد المسموعة ", f"{spec_stats['audio_h'].iloc[0]:.1f}", "ساعة", GOLD)
-        with sp2: kpi_card("📖", "صفحات المواد المقروءة", f"{int(spec_stats['read_p'].iloc[0])}", "صفحة", EMERALD)
-        with sp3: kpi_card("👥", "من المدارسات والفعاليات", f"{spec_ev['ev_h'].iloc[0]:.1f}", "ساعة", SKY)
-        with sp4: kpi_card("🏆", "المسابقات المعقودة", f"{int(spec_comp['c_cnt'].iloc[0])}", "مسابقة", ROSE)
+            sp1, sp2, sp3, sp4 = st.columns(4)
+            with sp1: kpi_card("🎙️", "من المواد المسموعة  ", f"{spec_audio_h:.1f}", "ساعة", GOLD)
+            with sp2: kpi_card("📖", "من الصفحات المقروءة  ", f"{int(spec_read_p)}", "صفحة", EMERALD)
+            with sp3: kpi_card("👥", "من المدارسات و الفعاليات", f"{spec_ev_h:.1f}", "ساعة", SKY)
+            with sp4: kpi_card("🏆", "من المسابقات المعقودة", f"{int(spec_c_cnt)}", "مسابقة", ROSE)
 
-        st.markdown(f"##### 📋 المراحل المنهجية المحددة لتخصص ({selected_spec})")
-        spec_stages_df = get_data(f"SELECT st.name as 'اسم المرحلة', st.start_date_gregorian as 'تاريخ البداية', st.end_date_gregorian as 'تاريخ الانتهاء' FROM Stages st JOIN Specialty_Stages ss ON st.stage_id = ss.stage_id JOIN Specialties s ON ss.specialty_id = s.specialty_id WHERE s.name = '{selected_spec}' AND st.stage_id != 100;")
-        show_table(spec_stages_df)
-    except:
+            st.markdown(f"##### 📋 المراحل الدراسية لتخصص ({selected_spec})")
+            spec_stages_df_view = stages_df[stages_df['stage_id'].isin(allowed_stages)][['name', 'start_date_gregorian', 'end_date_gregorian']].copy()
+            spec_stages_df_view.columns = ['اسم المرحلة', 'تاريخ البداية', 'تاريخ الانتهاء']
+            
+            spec_stages_df_view['تاريخ البداية'] = spec_stages_df_view['تاريخ البداية'].apply(lambda x: datetime.strptime(str(x).strip(), "%Y-%m-%d").strftime("%Y/%m/%d") if pd.notna(x) else x)
+            spec_stages_df_view['تاريخ الانتهاء'] = spec_stages_df_view['تاريخ الانتهاء'].apply(lambda x: datetime.strptime(str(x).strip(), "%Y-%m-%d").strftime("%Y/%m/%d") if pd.notna(x) else x)
+            
+            show_table(spec_stages_df_view)
+    except Exception as e:
         st.warning("لا توجد بيانات مسجلة حالياً لهذا التخصص.")
 
 elif st.session_state.view_mode == 'stage':
     st.markdown("#### 🎯 الفرز والإحصاء التفصيلي حسب المرحلة الدراسية")
     try:
-        stages_options = get_data("SELECT name FROM Stages WHERE stage_id != 100;")['name'].tolist()
+        stages_options = stages_df[stages_df['stage_id'] != 100]['name'].tolist()
         selected_stage = st.selectbox("🎯 حدد المرحلة الدراسية المعنية:", stages_options)
-        current_stage_id = int(get_data(f"SELECT stage_id FROM Stages WHERE name = '{selected_stage}';")['stage_id'].iloc[0])
-
-        stage_stats = get_data(f"SELECT IFNULL(SUM(CASE WHEN type='مسموع' THEN {duration_to_hours_expr('duration_time')} ELSE 0 END), 0) as audio_h, IFNULL(SUM(CASE WHEN type='مقروء' THEN pages_count ELSE 0 END), 0) as read_p FROM Courses_Materials WHERE stage_id = {current_stage_id};")
-        stage_ev = get_data(f"SELECT IFNULL(SUM({duration_to_hours_expr('duration_time')}), 0) as ev_h FROM Stage_Events WHERE stage_id = {current_stage_id};")
-        stage_comp = get_data(f"SELECT IFNULL(SUM(contests_count), 0) as c_cnt FROM Competitions WHERE stage_id = {current_stage_id};")
-
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: kpi_card("🎙️", "المقررات المسموعة", f"{stage_stats['audio_h'].iloc[0]:.1f}", "ساعة", GOLD)
-        with c2: kpi_card("📖", "المواد المقروءة", f"{int(stage_stats['read_p'].iloc[0])}", "صفحة", EMERALD)
-        with c3: kpi_card("👥", "المدارسات والفعاليات", f"{stage_ev['ev_h'].iloc[0]:.1f}", "ساعة", SKY)
-        with c4: kpi_card("🏆", "المسابقات المعقودة", f"{int(stage_comp['c_cnt'].iloc[0])}", "مسابقة", ROSE)
-
-        st.write("---")
-        tab1, tab2, tab3 = st.tabs(["📚 المقررات الدراسية", "👥 الفعاليات والمدارسات", "🎯 التخصصات المعنية"])
         
-        with tab1:
-            courses_df = get_data(f"SELECT title as 'اسم المقرر الدراسي', type as 'نوع المقرر', CASE WHEN type = 'مسموع' THEN duration_time ELSE CAST(pages_count AS TEXT) || ' صفحة' END as 'المدى / الحجم المقرّر' FROM Courses_Materials WHERE stage_id = {current_stage_id};")
-            if not courses_df.empty:
-                show_table(courses_df)
-            else:
-                st.caption("لا توجد مقررات مسجلة لهذه المرحلة.")
-                
-        with tab2:
-            events_list_df = get_data(f"SELECT title as 'عنوان الفعالية', duration_time as 'المدة الزمنية' FROM Stage_Events WHERE stage_id = {current_stage_id};")
-            if not events_list_df.empty:
-                show_table(events_list_df)
-            else:
-                st.caption("لا توجد فعاليات مسجلة لهذه المرحلة.")
-                
-        with tab3:
-            stage_specs = get_data(f"SELECT s.name as 'التخصص المعني بالدراسة' FROM Specialty_Stages ss JOIN Specialties s ON ss.specialty_id = s.specialty_id WHERE ss.stage_id = {current_stage_id};")
-            show_table(stage_specs)
+        stage_row = stages_df[stages_df['name'] == selected_stage]
+        if not stage_row.empty:
+            current_stage_id = int(stage_row['stage_id'].iloc[0])
+
+            stage_courses = courses_df[courses_df['stage_id'] == current_stage_id].copy()
+            stage_courses['hours'] = stage_courses['duration_time'].apply(parse_duration_to_hours)
+            stage_audio_h = stage_courses[stage_courses['type'] == 'مسموع']['hours'].sum()
+            stage_read_p = stage_courses[stage_courses['type'] == 'مقروء']['pages_count'].sum()
+
+            stage_events = events_df[events_df['stage_id'] == current_stage_id].copy()
+            stage_events['hours'] = stage_events['duration_time'].apply(parse_duration_to_hours)
+            stage_ev_h = stage_events['hours'].sum()
+
+            stage_c_cnt = competitions_df[competitions_df['stage_id'] == current_stage_id]['contests_count'].sum()
+
+            c1, c2, c3, c4 = st.columns(4)
+            with c1: kpi_card("🎙️", "ساعات الاستماع المقررة ", f"{stage_audio_h:.1f}", "ساعة", GOLD)
+            with c2: kpi_card("📖", "صفحات القراءة المقررة ", f"{int(stage_read_p)}", "صفحة", EMERALD)
+            with c3: kpi_card("👥", "ساعات المدارسات و الفعاليات", f"{stage_ev_h:.1f}", "ساعة", SKY)
+            with c4: kpi_card("🏆", "المسابقات المقررة", f"{int(stage_c_cnt)}", "مسابقة", ROSE)
+
+            st.write("---")
+            tab1, tab2, tab3 = st.tabs(["📚 المقررات الدراسية", "👥 الفعاليات والمدارسات", "🎯 التخصصات المعنية"])
             
-    except:
-        st.warning("تأكد من إعدادات قاعدة البيانات لهذه المرحلة.")
+            with tab1:
+                # 🛠️ إصلاح المشكلة هنا: بناء عمود ذكي يعتمد على نوع المقرر
+                def build_size_column(row):
+                    if row['type'] == 'مسموع':
+                        return str(row['duration_time'])
+                    elif row['type'] == 'مقروء':
+                        return f"{int(row['pages_count'])} صفحة"
+                    return ""
+
+                # تطبيق الدالة الذكية لملء عمود الحجم/المدى بشكل صحيح
+                stage_courses['المدى / الحجم المقرّر'] = stage_courses.apply(build_size_column, axis=1)
+                
+                view_c = stage_courses[['title', 'type', 'المدى / الحجم المقرّر']].copy()
+                view_c.columns = ['اسم المقرر الدراسي', 'نوع المقرر', 'المدى / الحجم المقرّر']
+                
+                if not view_c.empty:
+                    show_table(view_c)
+                else:
+                    st.caption("لا توجد مقررات مسجلة لهذه المرحلة.")
+                    
+            with tab2:
+                view_e = stage_events[['title', 'duration_time']].copy()
+                view_e.columns = ['عنوان الفعالية', 'المدة الزمنية']
+                if not view_e.empty:
+                    show_table(view_e)
+                else:
+                    st.caption("لا توجد فعاليات مسجلة لهذه المرحلة.")
+                    
+            with tab3:
+                allowed_specs = spec_stages_df[spec_stages_df['stage_id'] == current_stage_id]['specialty_id'].tolist()
+                view_s = specialties_df[specialties_df['specialty_id'].isin(allowed_specs)][['name']].copy()
+                view_s.columns = ['التخصص المعني بالدراسة']
+                show_table(view_s)
+    except Exception as e:
+        st.error(f"حدث خطأ أثناء الفرز: {e}")
